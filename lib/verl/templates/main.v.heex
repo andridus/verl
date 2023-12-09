@@ -1,0 +1,37 @@
+module main
+import erl
+
+<%= for {fun_name, args, return, code} <- @functions do %>
+  fn <%= fun_name %>_internal(<%= Enum.map(args, fn {key, type} -> "#{key} #{type}" end) |> Enum.join(", ") %>) <%= return %> {
+    <%= code %>
+  }
+
+  fn <%= fun_name %>(env &erl.Env, arity int, args &erl.DynamicTerm ) !erl.DynamicTerm {
+    if arity == <%=length(args) %> {
+      <%= for {{key, type}, i} <- Enum.with_index(args) do%>
+        <%= key %> := erl.get_<%=type%>(env, args, <%= i %>)!.to_<%=type%>()!
+      <% end %>
+      result := <%= fun_name %>_internal(<%= Enum.map(args, fn {key, _type} -> "#{key}" end) |> Enum.join(", ") %>)
+      return erl.make_<%= return %>(env, result)
+    } else {
+      return error("badarg")
+    }
+  }
+
+  fn <%= fun_name %>_exported(env &erl.Env, arity int, args &erl.DynamicTerm ) erl.DynamicTerm {
+    return <%= fun_name %>(env, arity, args) or {
+      erl.make_badarg(env)
+    }
+  }
+<% end %>
+
+@[export: 'nif_init']
+fn start_nif() &erl.Entrypoint {
+	functions := [
+    <%= for {fun_name, args, return, code} <- @functions do %>
+		  erl.Function{ name: c'<%= fun_name %>', arity: <%= length(args)%>, fptr: <%= fun_name %>_exported, flags: 0}
+    <%= end %>
+	]
+	return erl.init_entrypoint('<%= @module %>', functions)
+
+}
